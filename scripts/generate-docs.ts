@@ -63,16 +63,27 @@ const examples: Record<string, ExampleSet> = {
 
 const root = resolve(import.meta.dirname, "..");
 
-const output = resolve(root, "docs", "docs.html");
+function getArgument(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  if (index === -1) return undefined;
+
+  const value = process.argv[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`Expected a value after ${name}`);
+  }
+  return value;
+}
+
+const output = resolve(root, getArgument("--output") ?? "docs/docs.html");
 const modulePath = relative(
   dirname(output),
   join(root, "dist/quick-symbology.js"),
 )
   .split(sep)
   .join("/");
-const moduleSpecifier = modulePath.startsWith(".")
-  ? modulePath
-  : `./${modulePath}`;
+const moduleSpecifier =
+  getArgument("--import") ??
+  (modulePath.startsWith(".") ? modulePath : `./${modulePath}`);
 const sourceText = readFileSync(
   join(root, "src", "quick-symbology.ts"),
   "utf8",

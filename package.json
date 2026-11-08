@@ -2,6 +2,10 @@
   "name": "quick-symbology",
   "version": "0.1.0",
   "description": "Quick, data-driven symbology for your MapLibre maps",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jameswestman/quick-symbology.git"
+  },
   "type": "module",
   "main": "./dist/quick-symbology.js",
   "types": "./dist/quick-symbology.d.ts",
