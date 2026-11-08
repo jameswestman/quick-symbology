@@ -2,6 +2,8 @@
 
 Easy, data-driven symbology for your MapLibre maps.
 
+[Go to the Gallery page to see some examples!](https://jameswestman.github.io/quick-symbology/)
+
 ## What It Does
 
 Quick Symbols generates symbols and patterns on demand using MapLibre's [`MissingStyleImageResolver`](https://maplibre.org/maplibre-gl-js/docs/API/type-aliases/MissingStyleImageResolver/) feature. Symbology can be data-driven without pre-generating every possible symbol image.
