@@ -1,0 +1,55 @@
+<!doctype html>
+
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Quick Symbology Demo Map</title>
+
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/maplibre-gl@^6.16.0/dist/maplibre-gl.css"
+    />
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="map" style="height: 100%"></div>
+    <script type="module">
+      import * as maplibregl from "https://unpkg.com/maplibre-gl@^6.16.0/dist/maplibre-gl.mjs";
+      import {
+        quickSymbologyResolver,
+        marker,
+      } from "../dist/quick-symbology.js";
+
+      const map = new maplibregl.Map({
+        container: "map",
+        style: "https://demotiles.maplibre.org/globe.json",
+        center: [0, 0],
+        zoom: 2,
+      });
+
+      map.setMissingStyleImageResolver(quickSymbologyResolver(map));
+
+      map.on("load", () => {
+        map.addLayer({
+          id: "markers",
+          source: "maplibre",
+          "source-layer": "centroids",
+          type: "symbol",
+          layout: {
+            "icon-image": marker({
+              color: "#3887be",
+            }),
+          },
+        });
+      });
+    </script>
+  </body>
+</html>
