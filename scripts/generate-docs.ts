@@ -49,13 +49,13 @@ const examples: Record<string, ExampleSet> = {
     examples: [
       {
         label: "Basic grid",
-        expression: 'grid({ lineWidth: 2, color: "#000000", spacing: 9 })',
+        expression: 'grid({ lineWidth: 2, color: "#512eb9", spacing: 9 })',
         texture: true,
       },
       {
         label: "Non-square grid",
         expression:
-          'grid({ lineWidth: 2, color: "#000000", spacing: { horizontal: 16, vertical: 32 } })',
+          'grid({ lineWidth: 2, color: "#948069", spacing: { horizontal: 16, vertical: 32 } })',
         texture: true,
       },
     ],
