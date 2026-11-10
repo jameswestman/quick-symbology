@@ -53,13 +53,16 @@ Define a custom symbol with `registerSymbology`, providing a unique ID, a parame
 ```typescript
 import { registerSymbology } from "quick-symbology";
 
-const customCircle = registerSymbology(
-  "custom-circle",
-  {
+const customCircle = registerSymbology("custom-circle", {
+  spec: {
     color: { type: "string", default: "#000000" },
     radius: { type: "number", default: 3, min: 0.5, max: 256 },
   },
-  ({ color, radius }, rc) => {
+  size: ({ radius }, rc) => ({
+    width: radius,
+    height: radius,
+  }),
+  render: ({ color, radius }, rc) => {
     const size = radius * 2;
 
     return rc.draw(size, size, function (g) {
@@ -69,7 +72,7 @@ const customCircle = registerSymbology(
       g.fill();
     });
   },
-);
+});
 
 const expression = customCircle({ color: ["get", "color"], radius: 5 });
 ```
