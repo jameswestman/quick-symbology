@@ -9,7 +9,10 @@ type ExampleSet = { examples: Example[] };
 const examples: Record<string, ExampleSet> = {
   marker: {
     examples: [
-      { label: "Blue pin", expression: 'marker({ color: "#3887be" })' },
+      {
+        label: "Blue pin",
+        expression: 'marker({ color: "#3887be", outlineColor: "white" })',
+      },
       {
         label: "Plain coral pin",
         expression:
@@ -25,7 +28,8 @@ const examples: Record<string, ExampleSet> = {
       },
       {
         label: "Large circle",
-        expression: 'circle({ radius: 10, color: "#d25440" })',
+        expression:
+          'circle({ radius: 10, color: "#d25440", outlineColor: "#11947c" })',
       },
     ],
   },

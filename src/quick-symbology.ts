@@ -687,7 +687,36 @@ export function quickSymbologyResolver(map: MaplibreMap) {
   return resolve;
 }
 
-export interface MarkerOptions {
+export interface OutlineOptions {
+  /** Default 'none'. 'none' disables the outline. */
+  outlineColor?: Value<string>;
+
+  /** Default 1. 0 disables the outline. */
+  outlineWidth?: Value<number>;
+}
+
+const outlineOpts = {
+  outlineColor: { type: "string", default: "none" },
+  outlineWidth: { type: "number", default: 1, min: 0 },
+} as const;
+
+function drawOutline(
+  g: Ctx2D,
+  { outlineWidth, outlineColor }: SymbologyParameters<typeof outlineOpts>,
+) {
+  if (
+    outlineWidth &&
+    outlineWidth > 0 &&
+    outlineColor &&
+    outlineColor !== "none"
+  ) {
+    g.lineWidth = outlineWidth;
+    g.strokeStyle = outlineColor ?? "#ffffff";
+    g.stroke();
+  }
+}
+
+export interface MarkerOptions extends OutlineOptions {
   /** Fill color of the pin body. */
   color?: Value<string>;
 
@@ -696,12 +725,6 @@ export interface MarkerOptions {
 
   /** Height of the pin in px. Default 36. Use `icon-anchor: 'bottom'` on the layer. */
   height?: Value<number>;
-
-  /** Default '#ffffff'. */
-  outlineColor?: Value<string>;
-
-  /** Default 1.5. 0 disables the outline. */
-  outlineWidth?: Value<number>;
 
   /** Color of the inner dot. Default '#ffffff'; 'none' removes it. */
   dotColor?: Value<string>;
@@ -714,8 +737,7 @@ const markerOpts = {
   color: { type: "string", default: "#3887be" },
   width: { type: "number", default: 24 },
   height: { type: "number", default: 36 },
-  outlineColor: { type: "string", default: "#ffffff" },
-  outlineWidth: { type: "number", default: 1.5, min: 0 },
+  ...outlineOpts,
   dotColor: { type: "string", default: "#ffffff" },
   dotRadius: { type: "number", default: 0.42 },
 } as const;
@@ -730,29 +752,26 @@ export function marker(opts?: MarkerOptions) {
   const symbology: Symbology<typeof markerOpts> = {
     spec: markerOpts,
 
-    size: (params, rc) => {
-      const width = params.width ?? 24;
-      const height = params.height === 0 ? width * 1.5 : (params.height ?? 36);
-      return { width, height };
+    size: ({ width, height, outlineWidth }, rc) => {
+      return { width: width + outlineWidth, height: height + outlineWidth };
     },
 
     render: (params, rc) => {
       const g = rc.g;
 
-      const height = params.height === 0 ? params.width * 1.5 : params.height;
-
       const {
         width,
+        height,
         outlineWidth,
         color,
-        outlineColor: outline,
+        outlineColor,
         dotColor,
         dotRadius,
       } = params;
 
       const pad = outlineWidth / 2 + 0.5;
-      const cx = width / 2;
-      const r = width / 2 - pad;
+      const cx = (width + outlineWidth) / 2;
+      const r = width / 2;
       const cy = pad + r;
       const tipY = height - pad;
       // Angle at the circle's center between the tip direction and each tangent point.
@@ -768,12 +787,7 @@ export function marker(opts?: MarkerOptions) {
       g.closePath();
       g.fillStyle = color;
       g.fill();
-      if (outlineWidth > 0) {
-        g.lineJoin = "round";
-        g.lineWidth = outlineWidth;
-        g.strokeStyle = outline;
-        g.stroke();
-      }
+      drawOutline(g, { outlineWidth, outlineColor });
       if (dotColor !== "none" && dotRadius > 0) {
         g.beginPath();
         g.arc(cx, cy, r * dotRadius, 0, Math.PI * 2);
@@ -1004,7 +1018,7 @@ export function grid(opts?: GridOptions) {
   });
 }
 
-export interface CircleOptions {
+export interface CircleOptions extends OutlineOptions {
   /** Radius in px */
   radius: Value<number>;
 
@@ -1015,6 +1029,7 @@ export interface CircleOptions {
 const circleOptions = {
   radius: { type: "number", default: 6, min: 0.5, max: 256 },
   color: { type: "string", default: "#000000" },
+  ...outlineOpts,
 } as const;
 
 /**
@@ -1027,18 +1042,22 @@ export function circle(opts?: CircleOptions) {
   const symbology: Symbology<typeof circleOptions> = {
     spec: circleOptions,
 
-    size: ({ radius }) => ({
-      width: radius * 2,
-      height: radius * 2,
+    size: ({ radius, outlineWidth }) => ({
+      width: radius * 2 + outlineWidth,
+      height: radius * 2 + outlineWidth,
     }),
 
-    render: ({ radius, color }, rc) => {
-      const size = radius * 2;
+    render: ({ radius, color, outlineWidth, outlineColor }, rc) => {
+      const size = radius * 2 + outlineWidth;
+
       const g = rc.g;
       g.beginPath();
       g.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
+
       g.fillStyle = color;
       g.fill();
+
+      drawOutline(g, { outlineWidth, outlineColor });
     },
   };
   return registerSymbology("circle", symbology)(opts);
