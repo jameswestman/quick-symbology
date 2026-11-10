@@ -33,6 +33,19 @@ const examples: Record<string, ExampleSet> = {
       },
     ],
   },
+  star: {
+    examples: [
+      {
+        label: "Basic star",
+        expression: 'star({ color: "yellow", outlineColor: "blue" })',
+      },
+      {
+        label: "Rounded star",
+        expression:
+          'star({ points: 6, color: "#8b0eea", innerCornerRadius: 2, outerCornerRadius: 2 })',
+      },
+    ],
+  },
   stripes: {
     examples: [
       {

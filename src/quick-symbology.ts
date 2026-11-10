@@ -1099,11 +1099,7 @@ export function iconGrid(opts: IconGridOptions) {
     }),
 
     render: (
-      {
-        horizontalSpacing,
-        verticalSpacing,
-        icon,
-      }: SymbologyParameters<typeof iconGridOptions>,
+      { horizontalSpacing, verticalSpacing, icon },
       rc: RenderContext,
     ) => {
       const g = rc.g;
@@ -1132,4 +1128,173 @@ export function iconGrid(opts: IconGridOptions) {
   };
 
   return registerSymbology("iconGrid", symbology)(opts);
+}
+
+export interface StarOptions extends OutlineOptions {
+  /**
+   * The number of points on the star.
+   */
+  points?: Value<number>;
+
+  /**
+   * The rotation of the star clockwise in radians. The default is 0, meaning one point of the star points upwards.
+   */
+  rotation?: Value<number>;
+
+  /**
+   * The distance from the center of the star to the inner vertices.
+   */
+  innerRadius?: Value<number>;
+
+  /**
+   * The distance from the center of the star to the outer vertices.
+   */
+  outerRadius?: Value<number>;
+
+  /**
+   * The corner radius to round the inner vertices.
+   */
+  innerCornerRadius?: Value<number>;
+
+  /**
+   * The corner radius to round the outer vertices.
+   */
+  outerCornerRadius?: Value<number>;
+
+  /**
+   * The fill color of the star.
+   */
+  color?: Value<string>;
+}
+
+const starOptions = {
+  points: { type: "number", default: 5, min: 3 },
+  rotation: { type: "number", default: 0 },
+  innerRadius: { type: "number", default: 6 },
+  outerRadius: { type: "number", default: 12 },
+  innerCornerRadius: { type: "number", default: 0 },
+  outerCornerRadius: { type: "number", default: 0 },
+  color: { type: "string", default: "#000000" },
+  ...outlineOpts,
+} as const;
+
+interface RoundedVertex {
+  /** Vertex position. The rounded corner passes through this point. */
+  x: number;
+  y: number;
+  /** Unit vector pointing outward from the polygon center at this vertex. */
+  ux: number;
+  uy: number;
+  cornerRadius: number;
+  /** True if the vertex points outward (convex), false if concave. */
+  convex: boolean;
+}
+
+/**
+ * Traces a closed path (clockwise on screen) through the vertices, rounding
+ * each corner with a circular arc of the given radius whose apex passes
+ * through the vertex. Edges are tangent to the arcs.
+ */
+function roundedPolygonPath(g: Ctx2D, vertices: RoundedVertex[]) {
+  const n = vertices.length;
+  const circles = vertices.map((v) => {
+    const s = v.convex ? 1 : -1;
+    return {
+      cx: v.x - s * v.ux * v.cornerRadius,
+      cy: v.y - s * v.uy * v.cornerRadius,
+      r: v.cornerRadius,
+      s,
+    };
+  });
+
+  // Angle offset of the tangent point on circle c as seen from point p.
+  const tangent = (c: (typeof circles)[number], px: number, py: number) => {
+    const d = Math.hypot(px - c.cx, py - c.cy);
+    return {
+      angle: Math.atan2(py - c.cy, px - c.cx),
+      alpha: Math.acos(Math.min(1, c.r / d)),
+    };
+  };
+
+  g.beginPath();
+  for (let i = 0; i < n; i++) {
+    const v = vertices[i];
+    const c = circles[i];
+    if (c.r <= 0) {
+      if (i === 0) g.moveTo(v.x, v.y);
+      else g.lineTo(v.x, v.y);
+      continue;
+    }
+    const prev = vertices[(i + n - 1) % n];
+    const next = vertices[(i + 1) % n];
+    const a = tangent(c, prev.x, prev.y);
+    const b = tangent(c, next.x, next.y);
+    g.arc(
+      c.cx,
+      c.cy,
+      c.r,
+      a.angle + c.s * a.alpha,
+      b.angle - c.s * b.alpha,
+      c.s < 0,
+    );
+  }
+  g.closePath();
+}
+
+export function star(opts?: StarOptions) {
+  const symbology: Symbology<typeof starOptions> = {
+    spec: starOptions,
+
+    size: ({ outerRadius, outlineWidth }) => ({
+      width: outerRadius * 2 + outlineWidth,
+      height: outerRadius * 2 + outlineWidth,
+    }),
+
+    render: (
+      {
+        points,
+        rotation,
+        innerRadius,
+        outerRadius,
+        innerCornerRadius,
+        outerCornerRadius,
+        color,
+        outlineWidth,
+        outlineColor,
+      },
+      rc,
+    ) => {
+      const g = rc.g;
+      const w = outerRadius * 2 + outlineWidth;
+      const h = outerRadius * 2 + outlineWidth;
+
+      g.save();
+      g.translate(w / 2, h / 2);
+
+      const vertices: RoundedVertex[] = [];
+      for (let i = 0; i < points * 2; i++) {
+        const angle = (i * Math.PI) / points - Math.PI / 2 + rotation;
+        const outer = i % 2 === 0;
+        const radius = outer ? outerRadius : innerRadius;
+        vertices.push({
+          x: radius * Math.cos(angle),
+          y: radius * Math.sin(angle),
+          ux: Math.cos(angle),
+          uy: Math.sin(angle),
+          cornerRadius: outer ? outerCornerRadius : innerCornerRadius,
+          convex: outer,
+        });
+      }
+      roundedPolygonPath(g, vertices);
+
+      g.fillStyle = color;
+      g.fill();
+
+      drawOutline(g, { outlineWidth, outlineColor });
+
+      g.restore();
+    },
+  };
+
+  return registerSymbology("star", symbology)(opts);
 }
