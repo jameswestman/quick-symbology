@@ -3,8 +3,8 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
 import type { Node } from "@babel/types";
 
-type Example = { label: string; expression: string };
-type ExampleSet = { texture?: boolean; examples: Example[] };
+type Example = { label: string; expression: string; texture?: boolean };
+type ExampleSet = { examples: Example[] };
 
 const examples: Record<string, ExampleSet> = {
   marker: {
@@ -30,32 +30,64 @@ const examples: Record<string, ExampleSet> = {
     ],
   },
   stripes: {
-    texture: true,
     examples: [
       {
         label: "Horizontal bands",
         expression:
           'stripes({ stripes: [{ color: "#315f8a", width: 4 }, { color: "#f4d57a", width: 4 }] })',
+        texture: true,
       },
       {
         label: "Vertical bands",
         expression:
           'stripes({ direction: "vertical", stripes: [{ color: "#d25440", width: 3 }, { color: "transparent", width: 6 }] })',
+        texture: true,
+      },
+    ],
+  },
+  grid: {
+    examples: [
+      {
+        label: "Basic grid",
+        expression: 'grid({ lineWidth: 2, color: "#000000", spacing: 9 })',
+        texture: true,
+      },
+      {
+        label: "Non-square grid",
+        expression:
+          'grid({ lineWidth: 2, color: "#000000", spacing: { horizontal: 16, vertical: 32 } })',
+        texture: true,
       },
     ],
   },
   iconGrid: {
-    texture: true,
     examples: [
       {
         label: "Dot grid",
         expression:
           'iconGrid({ horizontalSpacing: 12, verticalSpacing: 12, icon: circle({ radius: 3, color: "#176b58" }) })',
+        texture: true,
       },
       {
         label: "Pin grid",
         expression:
           'iconGrid({ horizontalSpacing: 36, verticalSpacing: 42, icon: marker({ color: "#d25440", width: 16, height: 24 }) })',
+        texture: true,
+      },
+    ],
+  },
+  stack: {
+    examples: [
+      {
+        label: "Stacked icons",
+        expression:
+          'stack({ items: [circle({ radius: 20, color: "#176b58" }), marker({ color: "#d25440", width: 16, height: 24 })] })',
+      },
+      {
+        label: "Stacked textures",
+        expression:
+          'stack({ items: [stripes({ stripes: [{ color: "#315f8a", width: 2 }, { color: "transparent", width: 10 }] }), stripes({ stripes: [{ color: "#d25440", width: 2 }, { color: "transparent", width: 10 }], direction: "vertical" })] })',
+        texture: true,
       },
     ],
   },
@@ -291,18 +323,28 @@ const sections = symbologyNames
         (example, index) =>
           `
           <figure>
-            <div class="preview${config.texture ? " texture" : ""}" id="${name}-${index}"></div>
+            <div class="preview${example.texture ? " texture" : ""}" id="${name}-${index}"></div>
             <figcaption>${escapeHtml(example.label)}</figcaption>
             <pre><code>${escapeHtml(example.expression)}</code></pre>
           </figure>`,
       )
       .join("\n");
 
+    const textureExamples = config.examples.filter(
+      (example) => example.texture,
+    ).length;
+    const kind =
+      textureExamples === 0
+        ? "Symbol"
+        : textureExamples === config.examples.length
+          ? "Texture"
+          : "Mixed";
+
     return `
       <section id="${name}">
         <div class="section-heading">
           <h2>${name}</h2>
-          <span>${config.texture ? "Texture" : "Symbol"}</span>
+          <span>${kind}</span>
         </div>
         <p class="section-description">${escapeHtml(symbologyDescriptions[name] ?? "")}</p>
         <div class="examples">${previews}</div>
@@ -326,10 +368,10 @@ const renderCalls = symbologyNames
   .flatMap((name) =>
     examples[name].examples.map((example, index) =>
       [
-        `show(${JSON.stringify(`${name}-${index}`)}, () => ${example.expression.replaceAll("<", "\\u003c")}, ${!!examples[name].texture});`,
+        `show(${JSON.stringify(`${name}-${index}`)}, () => ${example.expression.replaceAll("<", "\\u003c")}, ${!!example.texture});`,
         ...(index === 0
           ? [
-              `show(${JSON.stringify(`${name}-nav-icon`)}, () => ${example.expression.replaceAll("<", "\\u003c")}, ${!!examples[name].texture});`,
+              `show(${JSON.stringify(`${name}-nav-icon`)}, () => ${example.expression.replaceAll("<", "\\u003c")}, ${!!example.texture});`,
             ]
           : []),
       ].join("\n"),
@@ -349,7 +391,7 @@ const html = `<!doctype html>
     <header><h1>Quick Symbology</h1><p>Symbol and texture reference</p></header>
 
     <main>
-      <nav aria-label="Symbologies">${symbologyNames.map((name) => `<a href="#${name}"><span class="nav-icon${examples[name].texture ? " texture" : ""}" id="${name}-nav-icon"></span>${name}</a>`).join("")}</nav>${sections}
+      <nav aria-label="Symbologies">${symbologyNames.map((name) => `<a href="#${name}"><span class="nav-icon${examples[name].examples[0].texture ? " texture" : ""}" id="${name}-nav-icon"></span>${name}</a>`).join("")}</nav>${sections}
     </main>
 
     <script type="module">

@@ -42,51 +42,107 @@ export interface ChildImage {
 }
 
 /**
- * The context provided to a custom renderer when drawing an icon.
+ * A renderer for a child image, providing the dimensions and a paint method.
  */
-export interface RenderContext {
-  /** The map the icon will be used with, or undefined when rendering outside of MapLibre. */
-  readonly map: MaplibreMap | undefined;
-
-  /** Device-pixel multiplier the resolver renders at. */
-  readonly pixelRatio: number;
+export interface ChildRenderer {
+  /**
+   * The size of the child image in logical pixels.
+   */
+  width: number;
 
   /**
-   * Create a canvas covering `width` × `height` logical pixels, call `paint` with a
-   * context already scaled to logical units, and read the result back as an icon.
+   * The height of the child image in logical pixels.
    */
-  draw(width: number, height: number, paint: (g: Ctx2D) => void): RenderedIcon;
+  height: number;
 
   /**
-   * Get an image by name as a drawable, generating it first if it's one of ours.
-   * Returns undefined if the image doesn't exist and can't be generated.
+   * True if the child image can be rendered at a size other than its requested size.
    */
-  resolve(name: string): ChildImage | undefined;
+  resizable: boolean;
+
+  /** Paints the child image onto the given context with the given width and height, which may differ from the natural width and height. */
+  paint(g: Ctx2D, width: number, height: number): void;
 }
 
 /**
- * The type of a renderer function for a symbology.
+ * The context provided to a custom renderer when determining the size of an icon.
  */
-export type Renderer<Params = Record<string, unknown>> = (
-  params: Params,
-  context: RenderContext,
-) => RenderedIcon;
+export interface SizeContext {
+  /** The map the icon will be used with, or undefined when rendering outside of MapLibre. */
+  readonly map: MaplibreMap | undefined;
+
+  /**
+   * Device-pixel multiplier the icon is being rendered at.
+   *
+   * The canvas is already scaled by the pixel ratio, so you usually don't need to
+   * worry about this.
+   */
+  readonly pixelRatio: number;
+
+  /** Gets an image by name for direct painting onto the context's canvas. */
+  resolveChild(name: string): ChildRenderer | undefined;
+}
+
+/**
+ * The context provided to a custom renderer when drawing an icon.
+ */
+export interface RenderContext extends SizeContext {
+  /**
+   * The drawing context on which to render the icon.
+   */
+  readonly g: Ctx2D;
+
+  /**
+   * The width of the icon being rendered, in logical pixels.
+   *
+   * This can differ from the requested width if the symbology is stretchable.
+   */
+  readonly width: number;
+
+  /**
+   * The height of the icon being rendered, in logical pixels.
+   *
+   * This can differ from the requested height if the symbology is stretchable.
+   */
+  readonly height: number;
+}
+
+/**
+ * The interface for a symbology renderer.
+ */
+export interface Symbology<T extends ParameterSpec> {
+  /**
+   * The definition the symbology's parameters.
+   */
+  spec: T;
+
+  /**
+   * Returns the size of the icon in logical pixels for the given parameters.
+   *
+   * If stretchable is true, the icon may be drawn at a different size than requested.
+   * This can happen, for example, in a stack, where the icon may be expanded to match
+   * the size of other icons in the stack.
+   */
+  size: (
+    params: SymbologyParameters<T>,
+    rc: SizeContext,
+  ) => { width: number; height: number; resizable?: boolean };
+
+  /** Renders the icon using the provided parameters and context. */
+  render: (params: SymbologyParameters<T>, rc: RenderContext) => void;
+}
 
 /* Using a symbol key on globalThis ensures that even if a bundler
  * duplicates this module, the registry remains shared across all copies.
  */
 const REGISTRY_KEY = Symbol.for("quick-symbology.renderers");
 
-interface RegisteredSymbology {
-  spec: ParameterSpec;
-  renderer: Renderer;
-}
-
-function registry(): Map<string, RegisteredSymbology> {
+function registry(): Map<string, Symbology<any>> {
   const host = globalThis as unknown as Record<
     symbol,
-    Map<string, RegisteredSymbology> | undefined
+    Map<string, Symbology<any>> | undefined
   >;
+
   let map = host[REGISTRY_KEY];
   if (!map) {
     map = new Map();
@@ -292,11 +348,12 @@ export type SymbologyParameters<Spec extends ParameterSpec> = {
   [Key in keyof Spec]: ParameterValue<Spec[Key]>;
 };
 
-function decodeParameters(
-  spec: ParameterSpec,
+function decodeParameters<T extends ParameterSpec>(
+  spec: T,
   bag: ParamBag,
-): Record<string, unknown> {
+): SymbologyParameters<T> {
   const params: Record<string, unknown> = {};
+
   for (const [key, definition] of Object.entries(spec)) {
     if (definition.type === "number") {
       const max =
@@ -317,7 +374,8 @@ function decodeParameters(
       params[key] = bag.string(key, definition.default);
     }
   }
-  return params;
+
+  return params as SymbologyParameters<T>;
 }
 
 function encodeParameters(
@@ -354,22 +412,22 @@ function encodeParameters(
  */
 export function registerSymbology<const Spec extends ParameterSpec>(
   id: string,
-  spec: Spec,
-  renderer: Renderer<SymbologyParameters<Spec>>,
+  symbology: Symbology<Spec>,
   overwrite = false,
 ): (options?: SymbologyOptions<Spec>) => ExpressionSpecification {
-  if (/[⟨⟩¦=]/.test(id))
+  if (/[⟨⟩¦=]/.test(id)) {
     throw new Error(`quick-symbology: invalid icon type "${id}"`);
+  }
 
   const reg = registry();
   if (overwrite || !reg.has(id)) {
-    reg.set(id, { spec, renderer: renderer as unknown as Renderer });
+    reg.set(id, symbology);
   }
 
   return (options) =>
     imageExpression(
       id,
-      encodeParameters(spec, options as Record<string, unknown>),
+      encodeParameters(symbology.spec, options as Record<string, unknown>),
     );
 }
 
@@ -387,30 +445,11 @@ function defaultPixelRatio(): number {
   return Math.max(1, Math.ceil(dpr));
 }
 
-function createContext2D(width: number, height: number): Ctx2D {
-  let g: Ctx2D | null;
-  if (typeof OffscreenCanvas !== "undefined") {
-    g = new OffscreenCanvas(width, height).getContext("2d", {
-      willReadFrequently: true,
-    });
-  } else {
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    g = canvas.getContext("2d", { willReadFrequently: true });
-  }
-  if (!g) throw new Error("quick-symbology: 2D canvas is not available");
-  return g;
-}
-
-const MAX_CANVAS_SIZE = 1024;
-
-function drawIcon(
-  pixelRatio: number,
+function createContext2D(
   width: number,
   height: number,
-  paint: (g: Ctx2D) => void,
-): RenderedIcon {
+  pixelRatio: number,
+): { g: Ctx2D; pixelRatio: number; pw: number; ph: number } {
   const pw = Math.min(
     MAX_CANVAS_SIZE,
     Math.max(1, Math.round(width * pixelRatio)),
@@ -419,11 +458,104 @@ function drawIcon(
     MAX_CANVAS_SIZE,
     Math.max(1, Math.round(height * pixelRatio)),
   );
-  const g = createContext2D(pw, ph);
-  g.scale(pw / width, ph / height);
+
+  let g: Ctx2D | null;
+
+  if (typeof OffscreenCanvas !== "undefined") {
+    g = new OffscreenCanvas(pw, ph).getContext("2d", {
+      willReadFrequently: true,
+    });
+  } else {
+    const canvas = document.createElement("canvas");
+    canvas.width = pw;
+    canvas.height = ph;
+    g = canvas.getContext("2d", { willReadFrequently: true });
+  }
+  if (!g) throw new Error("quick-symbology: 2D canvas is not available");
+
+  if (width > 0 && height > 0) {
+    g.scale(pw / width, ph / height);
+  }
+
   g.imageSmoothingQuality = "high";
-  paint(g);
-  return { image: g.getImageData(0, 0, pw, ph), pixelRatio: pw / width };
+
+  return { g, pixelRatio: pw / width, pw, ph };
+}
+
+const MAX_CANVAS_SIZE = 1024;
+
+function renderImpl<T extends ParameterSpec>(
+  map: MaplibreMap | undefined,
+  pixelRatio: number,
+  resolveExternal: (name: string) => ChildImage | undefined,
+  symbology: Symbology<T>,
+  params: SymbologyParameters<T>,
+): RenderedIcon {
+  const ctx: SizeContext = {
+    map,
+    pixelRatio,
+
+    resolveChild(name) {
+      const params = decodeName(name);
+      if (!params) {
+        /* This isn't a quick-symbology image, so try to resolve it externally. */
+        const image = resolveExternal(name);
+        if (!image) return undefined;
+
+        return {
+          width: image.width,
+          height: image.height,
+          resizable: false,
+
+          paint(g, width, height) {
+            g.drawImage(
+              image.source,
+              (width - image.width) / 2,
+              (height - image.height) / 2,
+              image.width,
+              image.height,
+            );
+          },
+        };
+      }
+
+      const symbology = registry().get(params.type);
+      if (!symbology) return undefined;
+
+      const values = decodeParameters(symbology.spec, params);
+
+      const childSize = symbology.size(values, ctx);
+
+      return {
+        width: childSize.width,
+        height: childSize.height,
+        resizable: childSize.resizable ?? false,
+
+        paint(g, width, height) {
+          symbology.render(values, { ...ctx, g, width, height });
+        },
+      };
+    },
+  };
+
+  const size = symbology.size(params, ctx);
+
+  const {
+    g,
+    pixelRatio: actualPixelRatio,
+    pw,
+    ph,
+  } = createContext2D(size.width, size.height, pixelRatio);
+
+  symbology.render(params, {
+    ...ctx,
+    g,
+    width: size.width,
+    height: size.height,
+  });
+
+  const image = g.getImageData(0, 0, pw, ph);
+  return { image, pixelRatio: actualPixelRatio, sdf: false };
 }
 
 /**
@@ -462,47 +594,23 @@ export function renderSymbol(
     );
   }
 
-  const rendering = new Set<string>();
-  const render = (name: string): RenderedIcon => {
-    const params = decodeName(name);
-    const registered = params && registry().get(params.type);
-    if (!params || !registered) {
-      throw new Error(`quick-symbology: no renderer for image "${name}"`);
-    }
-    if (rendering.has(name)) {
-      throw new Error(`quick-symbology: circular image reference "${name}"`);
-    }
-    rendering.add(name);
+  const params = decodeName(expression[1]);
+  const symbology = params && registry().get(params.type);
+  if (!params || !symbology) {
+    throw new Error(
+      `quick-symbology: no renderer for image "${expression[1]}"`,
+    );
+  }
 
-    try {
-      return registered.renderer(
-        decodeParameters(registered.spec, params),
-        context,
-      );
-    } finally {
-      rendering.delete(name);
-    }
-  };
+  const p = decodeParameters(symbology.spec, params);
 
-  const context: RenderContext = {
-    map: undefined,
+  return renderImpl(
+    undefined,
     pixelRatio,
-    draw: (width, height, paint) => drawIcon(pixelRatio, width, height, paint),
-    resolve(name) {
-      if (!decodeName(name)) return options.resolve?.(name);
-
-      const icon = render(name);
-      const g = createContext2D(icon.image.width, icon.image.height);
-      g.putImageData(icon.image, 0, 0);
-      return {
-        source: g.canvas,
-        width: icon.image.width / icon.pixelRatio,
-        height: icon.image.height / icon.pixelRatio,
-      };
-    },
-  };
-
-  return render(expression[1]);
+    options?.resolve ?? (() => undefined),
+    symbology,
+    p,
+  );
 }
 
 /**
@@ -514,32 +622,20 @@ export function renderSymbol(
 export function quickSymbologyResolver(map: MaplibreMap) {
   let warned = false;
 
-  function createContext(map: MaplibreMap): RenderContext {
-    const pixelRatio = defaultPixelRatio();
-
-    return {
-      map,
-      pixelRatio,
-      draw(width, height, paint) {
-        return drawIcon(pixelRatio, width, height, paint);
-      },
-      resolve: (name) => loadChild(map, name),
-    };
-  }
-
   function loadChild(map: MaplibreMap, name: string): ChildImage | undefined {
     if (!name || !resolve(name)) return undefined;
+
     const img = map.getImage(name);
     if (!img) return undefined;
 
-    const src = img.data as {
-      width: number;
-      height: number;
-      data: ArrayLike<number>;
-    };
+    const src = img.data;
     const pixels = new Uint8ClampedArray(src.data.length);
     pixels.set(src.data as ArrayLike<number>);
-    const g = createContext2D(src.width, src.height);
+    const { g } = createContext2D(
+      src.width / img.pixelRatio,
+      src.height / img.pixelRatio,
+      img.pixelRatio,
+    );
     g.putImageData(new ImageData(pixels, src.width, src.height), 0, 0);
 
     const ratio = img.pixelRatio || 1;
@@ -569,14 +665,19 @@ export function quickSymbologyResolver(map: MaplibreMap) {
     }
 
     try {
-      const icon = registered.renderer(
-        decodeParameters(registered.spec, params),
-        createContext(map),
+      const p = decodeParameters(registered.spec, params);
+
+      const image = renderImpl(
+        map,
+        defaultPixelRatio(),
+        (name) => loadChild(map, name),
+        registered,
+        p,
       );
 
-      map.addImage(id, icon.image, {
-        pixelRatio: icon.pixelRatio,
-        sdf: icon.sdf ?? false,
+      map.addImage(id, image.image, {
+        pixelRatio: image.pixelRatio,
+        sdf: image.sdf,
       });
     } catch (err) {
       console.error(`quick-symbology: failed to render "${id}"`, err);
@@ -619,55 +720,6 @@ const markerOpts = {
   dotRadius: { type: "number", default: 0.42 },
 } as const;
 
-const renderMarker: Renderer<SymbologyParameters<typeof markerOpts>> = (
-  params,
-  rc,
-) => {
-  const height = params.height === 0 ? params.width * 1.5 : params.height;
-
-  const {
-    width,
-    outlineWidth,
-    color,
-    outlineColor: outline,
-    dotColor,
-    dotRadius,
-  } = params;
-
-  const pad = outlineWidth / 2 + 0.5;
-  const cx = width / 2;
-  const r = width / 2 - pad;
-  const cy = pad + r;
-  const tipY = height - pad;
-  // Angle at the circle's center between the tip direction and each tangent point.
-  const a = Math.acos(r / (tipY - cy));
-
-  return rc.draw(width, height, (g) => {
-    g.beginPath();
-    g.moveTo(cx, tipY);
-    g.lineTo(
-      cx + r * Math.cos(Math.PI / 2 - a),
-      cy + r * Math.sin(Math.PI / 2 - a),
-    );
-    g.arc(cx, cy, r, Math.PI / 2 - a, Math.PI / 2 + a, true); // over the top
-    g.closePath();
-    g.fillStyle = color;
-    g.fill();
-    if (outlineWidth > 0) {
-      g.lineJoin = "round";
-      g.lineWidth = outlineWidth;
-      g.strokeStyle = outline;
-      g.stroke();
-    }
-    if (dotColor !== "none" && dotRadius > 0) {
-      g.beginPath();
-      g.arc(cx, cy, r * dotRadius, 0, Math.PI * 2);
-      g.fillStyle = dotColor;
-      g.fill();
-    }
-  });
-};
-
 /**
  * A pin marker icon.
  *
@@ -675,12 +727,68 @@ const renderMarker: Renderer<SymbologyParameters<typeof markerOpts>> = (
  * @returns A MapLibre resolvedImage expression
  */
 export function marker(opts?: MarkerOptions) {
-  return registerSymbology("marker", markerOpts, renderMarker)(opts);
+  const symbology: Symbology<typeof markerOpts> = {
+    spec: markerOpts,
+
+    size: (params, rc) => {
+      const width = params.width ?? 24;
+      const height = params.height === 0 ? width * 1.5 : (params.height ?? 36);
+      return { width, height };
+    },
+
+    render: (params, rc) => {
+      const g = rc.g;
+
+      const height = params.height === 0 ? params.width * 1.5 : params.height;
+
+      const {
+        width,
+        outlineWidth,
+        color,
+        outlineColor: outline,
+        dotColor,
+        dotRadius,
+      } = params;
+
+      const pad = outlineWidth / 2 + 0.5;
+      const cx = width / 2;
+      const r = width / 2 - pad;
+      const cy = pad + r;
+      const tipY = height - pad;
+      // Angle at the circle's center between the tip direction and each tangent point.
+      const a = Math.acos(r / (tipY - cy));
+
+      g.beginPath();
+      g.moveTo(cx, tipY);
+      g.lineTo(
+        cx + r * Math.cos(Math.PI / 2 - a),
+        cy + r * Math.sin(Math.PI / 2 - a),
+      );
+      g.arc(cx, cy, r, Math.PI / 2 - a, Math.PI / 2 + a, true); // over the top
+      g.closePath();
+      g.fillStyle = color;
+      g.fill();
+      if (outlineWidth > 0) {
+        g.lineJoin = "round";
+        g.lineWidth = outlineWidth;
+        g.strokeStyle = outline;
+        g.stroke();
+      }
+      if (dotColor !== "none" && dotRadius > 0) {
+        g.beginPath();
+        g.arc(cx, cy, r * dotRadius, 0, Math.PI * 2);
+        g.fillStyle = dotColor;
+        g.fill();
+      }
+    },
+  };
+
+  return registerSymbology("marker", symbology)(opts);
 }
 
 export interface StripesOptions {
   /** Bands in order; the tile repeats after the last one. `width` is in px. */
-  stripes: ReadonlyArray<{ color: Value<string>; width: Value<number> }>;
+  stripes?: ReadonlyArray<{ color?: Value<string>; width?: Value<number> }>;
 
   /**
    * 'horizontal' draws bands that run horizontally (stacked top to bottom);
@@ -706,30 +814,6 @@ const stripesOpts = {
   },
 } as const;
 
-const renderStripes: Renderer<SymbologyParameters<typeof stripesOpts>> = (
-  { stripes, direction },
-  rc,
-) => {
-  const bands = stripes;
-  const horizontal = direction === "horizontal";
-
-  // Work in whole device pixels so the tile repeats without seams.
-  const px = bands.map((b) => Math.max(1, Math.round(b.width * rc.pixelRatio)));
-  const total = px.reduce((sum, w) => sum + w, 0);
-  const size = total / rc.pixelRatio;
-
-  return rc.draw(size, size, (g) => {
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    let pos = 0;
-    bands.forEach((b, i) => {
-      g.fillStyle = b.color;
-      if (horizontal) g.fillRect(0, pos, total, px[i]);
-      else g.fillRect(pos, 0, px[i], total);
-      pos += px[i];
-    });
-  });
-};
-
 /**
  * A horizontal or vertical stripe texture.
  *
@@ -737,7 +821,187 @@ const renderStripes: Renderer<SymbologyParameters<typeof stripesOpts>> = (
  * @returns A MapLibre resolvedImage expression
  */
 export function stripes(opts?: StripesOptions) {
-  return registerSymbology("stripes", stripesOpts, renderStripes)(opts);
+  const symbology: Symbology<typeof stripesOpts> = {
+    spec: stripesOpts,
+
+    size: ({ stripes, direction }, rc) => {
+      const bands = stripes;
+      const horizontal = direction === "horizontal";
+
+      const px = bands.map((b) =>
+        Math.max(1, Math.round(b.width * rc.pixelRatio)),
+      );
+      const total = px.reduce((sum, w) => sum + w, 0);
+      const size = total / rc.pixelRatio;
+      return {
+        resizable: true,
+        ...(horizontal
+          ? { width: 1, height: size }
+          : { width: size, height: 1 }),
+      };
+    },
+
+    render: ({ stripes, direction }, rc) => {
+      const g = rc.g;
+      const bands = stripes;
+      const horizontal = direction === "horizontal";
+
+      // Work in whole device pixels so the tile repeats without seams.
+      const px = bands.map((b) =>
+        Math.max(1, Math.round(b.width * rc.pixelRatio)),
+      );
+      const total = px.reduce((sum, w) => sum + w, 0);
+      const size = total / rc.pixelRatio;
+      const [width, height] = [rc.width, rc.height];
+
+      for (
+        let offset = 0;
+        offset < (horizontal ? height : width);
+        offset += size
+      ) {
+        let pos = offset;
+        bands.forEach((b, i) => {
+          if (pos >= (horizontal ? height : width)) {
+            return;
+          }
+
+          g.fillStyle = b.color;
+          const bandWidth = px[i] / rc.pixelRatio;
+
+          if (horizontal) {
+            g.fillRect(0, pos, width, Math.min(bandWidth, height - pos));
+          } else {
+            g.fillRect(pos, 0, Math.min(bandWidth, width - pos), height);
+          }
+
+          pos += bandWidth;
+        });
+      }
+    },
+  };
+
+  return registerSymbology("stripes", symbology)(opts);
+}
+
+export interface StackOptions {
+  /** The images to stack */
+  items: ReadonlyArray<Value<string>>;
+}
+
+const stackOpts = {
+  items: {
+    type: "array",
+    node: "s",
+    fields: {
+      item: { type: "image", default: "" },
+    },
+    default: [],
+  },
+} as const;
+
+export function stack(opts?: StackOptions) {
+  const symbology: Symbology<typeof stackOpts> = {
+    spec: stackOpts,
+
+    size: ({ items }, rc) => {
+      const widths = items.map(
+        (item) => rc.resolveChild(item.item)?.width ?? 0,
+      );
+      const heights = items.map(
+        (item) => rc.resolveChild(item.item)?.height ?? 0,
+      );
+
+      return {
+        width: Math.max(1, ...widths),
+        height: Math.max(1, ...heights),
+        resizable: true,
+      };
+    },
+
+    render: ({ items }, rc: RenderContext) => {
+      const g = rc.g;
+      const children = items
+        .map((item) => rc.resolveChild(item.item))
+        .filter((x) => !!x);
+
+      children.forEach((child) => {
+        if (!child) {
+          return;
+        }
+
+        g.save();
+
+        if (child.resizable) {
+          child.paint(g, rc.width, rc.height);
+        } else {
+          g.translate(
+            (rc.width - child.width) / 2,
+            (rc.height - child.height) / 2,
+          );
+          child.paint(g, child.width, child.height);
+        }
+
+        g.restore();
+      });
+    },
+  };
+
+  return registerSymbology(
+    "stack",
+    symbology,
+  )(opts && { items: opts.items.map((item) => ({ item })) });
+}
+
+export interface GridOptions {
+  /** The width of the grid lines */
+  lineWidth?: Value<number>;
+
+  /** The color of the grid lines */
+  color?: Value<string>;
+
+  /**
+   * The spacing between grid lines, not including the line width.
+   *
+   * If an object is provided, it should have `horizontal` and `vertical` properties specifying the respective spacings.
+   */
+  spacing?:
+    | Value<number>
+    | { horizontal: Value<number>; vertical: Value<number> };
+}
+
+/**
+ * A grid of horizontal and vertical lines.
+ *
+ * This is a convenience function; you can achieve the same effect, and more, by stacking multiple `stripe()` textures using `stack()`.
+ *
+ * @param opts Symbology options
+ * @returns A MapLibre resolvedImage expression
+ */
+export function grid(opts?: GridOptions) {
+  const [horizontalSpacing, verticalSpacing] =
+    typeof opts?.spacing === "object" &&
+    opts?.spacing !== null &&
+    !Array.isArray(opts?.spacing)
+      ? [opts.spacing.horizontal, opts.spacing.vertical]
+      : [opts?.spacing, opts?.spacing];
+
+  return stack({
+    items: [
+      stripes({
+        stripes: [
+          { color: opts?.color, width: opts?.lineWidth },
+          { color: "transparent", width: horizontalSpacing },
+        ],
+      }),
+      stripes({
+        stripes: [
+          { color: opts?.color, width: opts?.lineWidth },
+          { color: "transparent", width: verticalSpacing },
+        ],
+        direction: "vertical",
+      }),
+    ],
+  });
 }
 
 export interface CircleOptions {
@@ -753,20 +1017,6 @@ const circleOptions = {
   color: { type: "string", default: "#000000" },
 } as const;
 
-function renderCircle(
-  { radius, color }: SymbologyParameters<typeof circleOptions>,
-  rc: RenderContext,
-) {
-  const size = radius * 2;
-
-  return rc.draw(size, size, (g) => {
-    g.beginPath();
-    g.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
-    g.fillStyle = color;
-    g.fill();
-  });
-}
-
 /**
  * A filled circle icon.
  *
@@ -774,7 +1024,24 @@ function renderCircle(
  * @returns A MapLibre resolvedImage expression
  */
 export function circle(opts?: CircleOptions) {
-  return registerSymbology("circle", circleOptions, renderCircle)(opts);
+  const symbology: Symbology<typeof circleOptions> = {
+    spec: circleOptions,
+
+    size: ({ radius }) => ({
+      width: radius * 2,
+      height: radius * 2,
+    }),
+
+    render: ({ radius, color }, rc) => {
+      const size = radius * 2;
+      const g = rc.g;
+      g.beginPath();
+      g.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
+      g.fillStyle = color;
+      g.fill();
+    },
+  };
+  return registerSymbology("circle", symbology)(opts);
 }
 
 export interface IconGridOptions {
@@ -797,38 +1064,6 @@ const iconGridOptions = {
   icon: { type: "image", default: "" },
 } as const;
 
-function renderIconGrid(
-  {
-    horizontalSpacing,
-    verticalSpacing,
-    icon,
-  }: SymbologyParameters<typeof iconGridOptions>,
-  rc: RenderContext,
-) {
-  const w = horizontalSpacing;
-  const h = verticalSpacing;
-  const child = rc.resolve(icon);
-
-  return rc.draw(w, h, (g) => {
-    if (!child) return;
-    const x = (w - child.width) / 2;
-    const y = (h - child.height) / 2;
-
-    // Draw the neighbors too so icons larger than a cell wrap around the tile edges.
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        g.drawImage(
-          child.source,
-          x + dx * w,
-          y + dy * h,
-          child.width,
-          child.height,
-        );
-      }
-    }
-  });
-}
-
 /**
  * A texture composed of a grid of repeated icons.
  *
@@ -836,5 +1071,46 @@ function renderIconGrid(
  * @returns A MapLibre resolvedImage expression
  */
 export function iconGrid(opts: IconGridOptions) {
-  return registerSymbology("iconGrid", iconGridOptions, renderIconGrid)(opts);
+  const symbology: Symbology<typeof iconGridOptions> = {
+    spec: iconGridOptions,
+
+    size: ({ horizontalSpacing, verticalSpacing }) => ({
+      width: horizontalSpacing,
+      height: verticalSpacing,
+    }),
+
+    render: (
+      {
+        horizontalSpacing,
+        verticalSpacing,
+        icon,
+      }: SymbologyParameters<typeof iconGridOptions>,
+      rc: RenderContext,
+    ) => {
+      const g = rc.g;
+      const w = horizontalSpacing;
+      const h = verticalSpacing;
+
+      const child = rc.resolveChild(icon);
+      if (!child) return;
+
+      g.save();
+      const cx = (w - child.width) / 2;
+      const cy = (h - child.height) / 2;
+      g.translate(cx, cy);
+
+      // Draw the neighbors too so icons larger than a cell wrap around the tile edges.
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          g.save();
+          g.translate(dx * w, dy * h);
+          child.paint(g, child.width, child.height);
+          g.restore();
+        }
+      }
+      g.restore();
+    },
+  };
+
+  return registerSymbology("iconGrid", symbology)(opts);
 }

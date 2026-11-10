@@ -1,12 +1,14 @@
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   circle,
+  grid,
   iconGrid,
   marker,
   quickSymbologyResolver,
   registerSymbology,
   renderSymbol,
+  stack,
   stripes,
 } from "../dist/quick-symbology.js";
 
@@ -25,11 +27,14 @@ globalThis.OffscreenCanvas = class {
     return {
       canvas,
       scale: (...args) => canvas.calls.push(["scale", ...args]),
+      save: (...args) => canvas.calls.push(["save", ...args]),
+      restore: (...args) => canvas.calls.push(["restore", ...args]),
+      translate: (...args) => canvas.calls.push(["translate", ...args]),
       setTransform: (...args) => canvas.calls.push(["setTransform", ...args]),
       beginPath() {},
       moveTo() {},
       lineTo() {},
-      arc() {},
+      arc: (...args) => canvas.calls.push(["arc", ...args]),
       closePath() {},
       fill() {},
       stroke() {},
@@ -68,7 +73,8 @@ test("renders literal symbols at the requested pixel ratio", () => {
     }),
     { pixelRatio: 2 },
   );
-  assert.equal(bands.image.width, 10);
+  assert.equal(bands.image.width, 2);
+  assert.equal(bands.image.height, 10);
   assert.equal(
     canvases.at(-1).calls.filter(([name]) => name === "fillRect").length,
     2,
@@ -82,12 +88,17 @@ test("renders nested generated images and resolves external images", () => {
     verticalSpacing: 12,
     icon: child,
   });
+  const before = canvases.length;
   const result = renderSymbol(tile, { pixelRatio: 2 });
   assert.equal(result.image.width, 32);
   assert.equal(result.image.height, 24);
-  const calls = canvases.at(-1).calls.filter(([name]) => name === "drawImage");
-  assert.equal(calls.length, 9);
-  assert.deepEqual(calls[4].slice(2), [5, 3, 6, 6]);
+  assert.equal(canvases.length - before, 1);
+  const calls = canvases.at(-1).calls;
+  assert.equal(calls.filter(([name]) => name === "drawImage").length, 0);
+  assert.equal(calls.filter(([name]) => name === "arc").length, 9);
+  assert.ok(
+    calls.some(([name, x, y]) => name === "translate" && x === 5 && y === 3),
+  );
 
   const source = {};
   const external = iconGrid({
@@ -105,6 +116,163 @@ test("renders nested generated images and resolves external images", () => {
   );
 });
 
+test("stack draws nested icons at their logical dimensions", () => {
+  renderSymbol(
+    stack({
+      items: [
+        circle({ radius: 20, color: "green" }),
+        marker({ width: 16, height: 24 }),
+      ],
+    }),
+    { pixelRatio: 2 },
+  );
+
+  const calls = canvases.at(-1).calls;
+  assert.equal(calls.filter(([name]) => name === "drawImage").length, 0);
+  assert.deepEqual(
+    calls.filter(([name]) => name === "translate"),
+    [
+      ["translate", 0, 0],
+      ["translate", 12, 8],
+    ],
+  );
+});
+
+test("nested stripes fill the parent dimensions and repeat", () => {
+  const before = canvases.length;
+  const result = renderSymbol(
+    stack({
+      items: [
+        circle({ radius: 5, color: "green" }),
+        stripes({
+          stripes: [
+            { color: "red", width: 3 },
+            { color: "blue", width: 2 },
+          ],
+        }),
+      ],
+    }),
+    { pixelRatio: 2 },
+  );
+  assert.equal(canvases.length - before, 1);
+  assert.equal(result.image.width, 20);
+  assert.equal(result.image.height, 20);
+  assert.deepEqual(
+    canvases.at(-1).calls.filter(([name]) => name === "fillRect"),
+    [
+      ["fillRect", 0, 0, 10, 3],
+      ["fillRect", 0, 3, 10, 2],
+      ["fillRect", 0, 5, 10, 3],
+      ["fillRect", 0, 8, 10, 2],
+    ],
+  );
+});
+
+test("grid fills both axes with independently sized stripe periods", () => {
+  const result = renderSymbol(
+    grid({
+      lineWidth: 2,
+      color: "black",
+      spacing: {
+        horizontal: 3,
+        vertical: 6,
+      },
+    }),
+  );
+  assert.equal(result.image.width, 8);
+  assert.equal(result.image.height, 5);
+  assert.deepEqual(
+    canvases.at(-1).calls.filter(([name]) => name === "fillRect"),
+    [
+      ["fillRect", 0, 0, 8, 2],
+      ["fillRect", 0, 2, 8, 3],
+      ["fillRect", 0, 0, 2, 5],
+      ["fillRect", 2, 0, 6, 5],
+    ],
+  );
+});
+
+test("nested stacks pass dimensions through to their children", () => {
+  renderSymbol(
+    stack({
+      items: [
+        circle({ radius: 5, color: "red" }),
+        stack({
+          items: [
+            stripes({
+              direction: "vertical",
+              stripes: [
+                { color: "blue", width: 3 },
+                { color: "transparent", width: 2 },
+              ],
+            }),
+          ],
+        }),
+      ],
+    }),
+  );
+  assert.deepEqual(
+    canvases.at(-1).calls.filter(([name]) => name === "fillRect"),
+    [
+      ["fillRect", 0, 0, 3, 10],
+      ["fillRect", 3, 0, 2, 10],
+      ["fillRect", 5, 0, 3, 10],
+      ["fillRect", 8, 0, 2, 10],
+    ],
+  );
+});
+
+test("child contexts receive parent dimensions in both resolvers", () => {
+  const dimensions = [];
+  const child = registerSymbology("test-child-dimensions", {
+    spec: {},
+    size: () => ({ width: 10, height: 10 }),
+    render: (_, rc) => {
+      dimensions.push([rc.width, rc.height]);
+    },
+  });
+
+  const expression = stack({
+    items: [circle({ radius: 5, color: "red" }), child()],
+  });
+
+  renderSymbol(expression);
+  const added = [];
+
+  const map = {
+    hasImage: () => false,
+    addImage: (...args) => added.push(args),
+  };
+  const before = canvases.length;
+  quickSymbologyResolver(map)(expression[1]);
+  assert.equal(canvases.length - before, 1);
+  assert.equal(added.length, 1);
+  assert.deepEqual(dimensions, [
+    [10, 10],
+    [10, 10],
+  ]);
+});
+
+test("stack and grid use static image names when their inputs are literal", () => {
+  const literalStack = stack({ items: [stripes({}), stripes({})] });
+  assert.equal(literalStack[0], "image");
+  assert.equal(typeof literalStack[1], "string");
+
+  const dynamicStack = stack({
+    items: [stripes({ stripes: [{ width: ["get", "line-width"] }] })],
+  });
+  assert.equal(dynamicStack[0], "image");
+  assert.notEqual(typeof dynamicStack[1], "string");
+
+  const literalGrid = grid({ lineWidth: 2, color: "black", spacing: 16 });
+  assert.equal(literalGrid[0], "image");
+  assert.equal(typeof literalGrid[1], "string");
+
+  const dynamicGrid = grid({ lineWidth: ["get", "line-width"] });
+  assert.equal(dynamicGrid[0], "image");
+  assert.notEqual(typeof dynamicGrid[1], "string");
+});
+
 test("rejects dynamic expressions and invalid options", () => {
   assert.throws(
     () => renderSymbol(circle({ radius: 3, color: ["get", "color"] })),
@@ -119,13 +287,8 @@ test("rejects dynamic expressions and invalid options", () => {
 
 test("custom symbology encodes expressions and normalizes parameters for both resolvers", () => {
   const received = [];
-  const renderer = (params, context) => {
-    received.push(params);
-    return context.draw(1, 1, () => {});
-  };
-  const custom = registerSymbology(
-    "test-custom",
-    {
+  const custom = registerSymbology("test-custom", {
+    spec: {
       size: { type: "number", default: 5, min: 2, max: 10 },
       color: { type: "string", default: "black", optional: true },
       direction: {
@@ -143,8 +306,11 @@ test("custom symbology encodes expressions and normalizes parameters for both re
       },
       icon: { type: "image", default: "" },
     },
-    renderer,
-  );
+    render: (params, context) => {
+      received.push(params);
+    },
+    size: () => ({ width: 1, height: 1 }),
+  });
   const expression = custom({
     size: 20,
     direction: "invalid",
@@ -184,32 +350,52 @@ test("custom symbology encodes expressions and normalizes parameters for both re
 
 test("duplicate registration preserves the renderer unless overwrite is requested", () => {
   const spec = { size: { type: "number", default: 1 } };
-  const first = () => ({ image: {}, pixelRatio: 1 });
-  const second = () => ({ image: {}, pixelRatio: 2 });
+  const size = () => ({ width: 1, height: 1 });
+  const first = mock.fn();
+  const second = mock.fn();
 
-  const firstReg = registerSymbology("test-duplicate", spec, first);
-  assert.equal(
-    renderSymbol(firstReg()).pixelRatio,
-    1,
-    "should register the symbology",
-  );
+  const firstReg = registerSymbology("test-duplicate", {
+    spec,
+    render: first,
+    size,
+  });
+  renderSymbol(firstReg());
+  assert.equal(first.mock.callCount(), 1, "should call the render function");
 
-  const secondReg = registerSymbology("test-duplicate", spec, second);
+  const secondReg = registerSymbology("test-duplicate", {
+    spec,
+    render: second,
+    size,
+  });
+  renderSymbol(secondReg());
   assert.equal(
-    renderSymbol(secondReg()).pixelRatio,
-    1,
-    "should not overwrite the existing registration",
-  );
-
-  const overwriteReg = registerSymbology("test-duplicate", spec, second, true);
-  assert.equal(
-    renderSymbol(firstReg()).pixelRatio,
+    first.mock.callCount(),
     2,
+    "should still call the first render function",
+  );
+
+  registerSymbology(
+    "test-duplicate",
+    {
+      spec,
+      render: second,
+      size,
+    },
+    true,
+  );
+  renderSymbol(secondReg());
+  assert.equal(
+    second.mock.callCount(),
+    1,
     "should overwrite the existing registration",
   );
+});
 
+test("registerSymbology throws for invalid icon type", () => {
+  const spec = { size: { type: "number", default: 1 } };
+  const render = mock.fn();
   assert.throws(
-    () => registerSymbology("invalid=type", spec, first),
+    () => registerSymbology("invalid=type", { spec, render }),
     /invalid icon type/,
     "should throw for invalid character in icon type",
   );
