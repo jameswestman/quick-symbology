@@ -50,17 +50,23 @@ globalThis.OffscreenCanvas = class {
 };
 
 test("renders literal symbols at the requested pixel ratio", () => {
-  const icon = renderSymbol(circle({ radius: 3, color: "red" }), {
-    pixelRatio: 2,
-  });
+  const icon = renderSymbol(
+    circle({ radius: 3, color: "red", outlineWidth: 0 }),
+    {
+      pixelRatio: 2,
+    },
+  );
   assert.equal(icon.image.width, 12);
   assert.equal(icon.image.height, 12);
   assert.equal(icon.pixelRatio, 2);
   assert.deepEqual(canvases.at(-1).calls[0], ["scale", 2, 2]);
 
-  const pin = renderSymbol(marker({ color: "blue", width: 16, height: 25 }), {
-    pixelRatio: 1,
-  });
+  const pin = renderSymbol(
+    marker({ color: "blue", width: 16, height: 25, outlineWidth: 0 }),
+    {
+      pixelRatio: 1,
+    },
+  );
   assert.equal(pin.image.width, 16);
   assert.equal(pin.image.height, 25);
 
@@ -82,7 +88,7 @@ test("renders literal symbols at the requested pixel ratio", () => {
 });
 
 test("renders nested generated images and resolves external images", () => {
-  const child = circle({ radius: 3, color: "red" });
+  const child = circle({ radius: 3, color: "red", outlineWidth: 0 });
   const tile = iconGrid({
     horizontalSpacing: 16,
     verticalSpacing: 12,
@@ -143,7 +149,7 @@ test("nested stripes fill the parent dimensions and repeat", () => {
   const result = renderSymbol(
     stack({
       items: [
-        circle({ radius: 5, color: "green" }),
+        circle({ radius: 5, color: "green", outlineWidth: 0 }),
         stripes({
           stripes: [
             { color: "red", width: 3 },
@@ -196,7 +202,7 @@ test("nested stacks pass dimensions through to their children", () => {
   renderSymbol(
     stack({
       items: [
-        circle({ radius: 5, color: "red" }),
+        circle({ radius: 5, color: "red", outlineWidth: 0 }),
         stack({
           items: [
             stripes({
@@ -402,7 +408,9 @@ test("registerSymbology throws for invalid icon type", () => {
 });
 
 test("built-in specs apply dependent limits and empty array defaults", () => {
-  const circleIcon = renderSymbol(circle({ color: "red", radius: 1000 }));
+  const circleIcon = renderSymbol(
+    circle({ color: "red", radius: 1000, outlineWidth: 0 }),
+  );
   assert.equal(
     circleIcon.image.width,
     512,
