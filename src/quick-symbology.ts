@@ -1346,3 +1346,77 @@ export function rectangle(opts?: RectangleOptions) {
 
   return registerSymbology("rectangle", symbology)(opts);
 }
+
+export interface CheckerOptions {
+  /** The first color of the checker pattern */
+  color1?: Value<string>;
+
+  /** The second color of the checker pattern */
+  color2?: Value<string>;
+
+  /** The third color of the checker pattern */
+  color3?: Value<string>;
+
+  /** The fourth color of the checker pattern */
+  color4?: Value<string>;
+
+  /** The width of each checker square */
+  width?: Value<number>;
+
+  /** The height of each checker square */
+  height?: Value<number>;
+}
+
+const checkerOpts = {
+  color1: { type: "string", default: "#ffffff" },
+  color2: { type: "string", default: "transparent" },
+  color3: { type: "string", default: "" },
+  color4: { type: "string", default: "" },
+  width: { type: "number", default: 8, min: 1 },
+  height: { type: "number", default: 8, min: 1 },
+} as const;
+
+/**
+ * A checkerboard texture with one, two, or three colors.
+ *
+ * If only `color1` is given, the checkerboard alternates between that color and transparent.
+ * If `color1` and `color2` are given, the checkerboard alternates between those two colors.
+ * If `color1`, `color2`, and `color3` are given, the checkerboard alternates between `color1` and `color2` on the first row, and `color3` and `color1` on the second row.
+ * If all four colors are given, the checkerboard alternates between `color1` and `color2` on the first row, and `color3` and `color4` on the second row.
+ *
+ * @param opts Symbology options
+ * @returns A MapLibre resolvedImage expression
+ */
+export function checker(opts?: CheckerOptions) {
+  const symbology: Symbology<typeof checkerOpts> = {
+    spec: checkerOpts,
+
+    size: ({ width, height }) => ({
+      width: width * 2,
+      height: height * 2,
+    }),
+
+    render: ({ color1, color2, color3, color4, width, height }, rc) => {
+      const g = rc.g;
+
+      const colors = [
+        [color1, color2],
+        [color3 || color2, color4 || color1],
+      ];
+      const rows = 2;
+      const cols = 2;
+
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const color = colors[row][col];
+          if (color) {
+            g.fillStyle = color;
+            g.fillRect(col * width, row * height, width, height);
+          }
+        }
+      }
+    },
+  };
+
+  return registerSymbology("checker", symbology)(opts);
+}
