@@ -138,6 +138,22 @@ const examples: Record<string, ExampleSet> = {
       },
     ],
   },
+  iconHexGrid: {
+    examples: [
+      {
+        label: "Hexagonal grid",
+        expression:
+          'iconHexGrid({ spacing: 16, icon: circle({ radius: 3, color: "#176b58" }) })',
+        texture: true,
+      },
+      {
+        label: "Hexagonal grid (point up)",
+        expression:
+          'iconHexGrid({ spacing: 16, pointUp: true, icon: circle({ radius: 3, color: "#52176b" }) })',
+        texture: true,
+      },
+    ],
+  },
   stack: {
     examples: [
       {
