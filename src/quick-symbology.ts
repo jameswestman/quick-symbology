@@ -913,6 +913,23 @@ const stackOpts = {
   },
 } as const;
 
+function paintChildCentered(
+  child: ChildRenderer | undefined,
+  g: Ctx2D,
+  rc: RenderContext,
+) {
+  if (!child) {
+    return;
+  }
+
+  if (child.resizable) {
+    child.paint(g, rc.width, rc.height);
+  } else {
+    g.translate((rc.width - child.width) / 2, (rc.height - child.height) / 2);
+    child.paint(g, child.width, child.height);
+  }
+}
+
 export function stack(opts?: StackOptions) {
   const symbology: Symbology<typeof stackOpts> = {
     spec: stackOpts,
@@ -945,15 +962,7 @@ export function stack(opts?: StackOptions) {
 
         g.save();
 
-        if (child.resizable) {
-          child.paint(g, rc.width, rc.height);
-        } else {
-          g.translate(
-            (rc.width - child.width) / 2,
-            (rc.height - child.height) / 2,
-          );
-          child.paint(g, child.width, child.height);
-        }
+        paintChildCentered(child, g, rc);
 
         g.restore();
       });
@@ -1419,4 +1428,49 @@ export function checker(opts?: CheckerOptions) {
   };
 
   return registerSymbology("checker", symbology)(opts);
+}
+
+export interface BackgroundOptions {
+  /** The background color */
+  color?: Value<string>;
+
+  /** The child symbology to render on top of the background */
+  child?: Value<string>;
+}
+
+const backgroundOpts = {
+  color: { type: "string", default: "transparent" },
+  child: { type: "image", default: "" },
+} as const;
+
+/**
+ * Applies a background color to a symbology.
+ *
+ * @param opts Symbology options
+ * @returns A MapLibre resolvedImage expression
+ */
+export function background(opts?: BackgroundOptions) {
+  const symbology: Symbology<typeof backgroundOpts> = {
+    spec: backgroundOpts,
+
+    size: ({ child }, rc) => {
+      const resolvedChild = rc.resolveChild(child);
+      return {
+        width: resolvedChild?.width ?? 1,
+        height: resolvedChild?.height ?? 1,
+        resizable: resolvedChild?.resizable ?? true,
+      };
+    },
+
+    render: ({ color, child }, rc) => {
+      const g = rc.g;
+      g.fillStyle = color ?? "transparent";
+      g.fillRect(0, 0, rc.width, rc.height);
+
+      const resolvedChild = rc.resolveChild(child);
+      paintChildCentered(resolvedChild, g, rc);
+    },
+  };
+
+  return registerSymbology("background", symbology)(opts);
 }
