@@ -33,6 +33,20 @@ const examples: Record<string, ExampleSet> = {
       },
     ],
   },
+  rectangle: {
+    examples: [
+      {
+        label: "Square",
+        expression:
+          'rectangle({ color: "#3887be", width: 16, height: 16, outlineColor: "#ccc" })',
+      },
+      {
+        label: "Rectangle",
+        expression:
+          'rectangle({ color: "orange", width: 24, height: 8, outlineColor: "#333" })',
+      },
+    ],
+  },
   star: {
     examples: [
       {

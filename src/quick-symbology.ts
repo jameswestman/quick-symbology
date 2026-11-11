@@ -1298,3 +1298,51 @@ export function star(opts?: StarOptions) {
 
   return registerSymbology("star", symbology)(opts);
 }
+
+export interface RectangleOptions extends OutlineOptions {
+  /** The fill color of the rectangle */
+  color?: Value<string>;
+
+  /** The width of the rectangle */
+  width?: Value<number>;
+
+  /** The height of the rectangle */
+  height?: Value<number>;
+}
+
+const rectangleOpts = {
+  color: { type: "string", default: "#3887be" },
+  width: { type: "number", default: 16, min: 0 },
+  height: { type: "number", default: 16, min: 0 },
+  ...outlineOpts,
+} as const;
+
+/**
+ * A rectangle icon
+ * @param opts Symbology options
+ * @returns A MapLibre resolvedImage expression
+ */
+export function rectangle(opts?: RectangleOptions) {
+  const symbology: Symbology<typeof rectangleOpts> = {
+    spec: rectangleOpts,
+
+    size: ({ width, height, outlineWidth }) => ({
+      width: width + outlineWidth,
+      height: height + outlineWidth,
+    }),
+
+    render: ({ color, outlineWidth, outlineColor, width, height }, rc) => {
+      const g = rc.g;
+
+      g.beginPath();
+      g.rect(outlineWidth / 2, outlineWidth / 2, width, height);
+
+      g.fillStyle = color;
+      g.fill();
+
+      drawOutline(g, { outlineWidth, outlineColor });
+    },
+  };
+
+  return registerSymbology("rectangle", symbology)(opts);
+}
