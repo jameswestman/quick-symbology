@@ -300,6 +300,7 @@ function imageExpression(
 export interface ParameterSpec {
   readonly [key: string]:
     | { type: "string" | "image"; default: string }
+    | { type: "boolean"; default: boolean }
     | {
         type: "number";
         default: number;
@@ -325,7 +326,9 @@ type ParameterValue<Spec> = Spec extends { type: "number" }
     ? Choice
     : Spec extends { type: "array"; fields: infer Fields extends ParameterSpec }
       ? SymbologyParameters<Fields>[]
-      : string;
+      : Spec extends { type: "boolean" }
+        ? boolean
+        : string;
 
 type ParameterInput<Spec> = Spec extends {
   type: "array";
@@ -370,6 +373,9 @@ function decodeParameters<T extends ParameterSpec>(
         .map((child) => decodeParameters(definition.fields, child));
 
       params[key] = values.length ? values : (definition.default ?? []);
+    } else if (definition.type === "boolean") {
+      params[key] =
+        bag.string(key, definition.default ? "true" : "false") === "true";
     } else {
       params[key] = bag.string(key, definition.default);
     }
@@ -1137,6 +1143,86 @@ export function iconGrid(opts: IconGridOptions) {
   };
 
   return registerSymbology("iconGrid", symbology)(opts);
+}
+
+export interface IconHexGridOptions {
+  /** Distance between icon centers */
+  spacing: Value<number>;
+
+  /** The icon to repeat */
+  icon: Value<string>;
+
+  /** Whether the point of the hexagon faces up */
+  pointUp?: Value<boolean>;
+}
+
+const iconHexGridOptions = {
+  spacing: { type: "number", default: 16, min: 1, max: 1024 },
+  icon: { type: "image", default: "" },
+  pointUp: { type: "boolean", default: false },
+} as const;
+
+/**
+ * A texture composed of a hexagonal grid of repeated icons.
+ *
+ * @param opts Symbology options
+ * @returns A MapLibre resolvedImage expression
+ */
+export function iconHexGrid(opts: IconHexGridOptions) {
+  const symbology: Symbology<typeof iconHexGridOptions> = {
+    spec: iconHexGridOptions,
+
+    size: ({ spacing, pointUp }) => {
+      const crossSpacing = Math.round(Math.sqrt(3) * spacing);
+
+      return pointUp
+        ? {
+            width: crossSpacing,
+            height: spacing,
+          }
+        : {
+            width: spacing,
+            height: crossSpacing,
+          };
+    },
+
+    render: ({ spacing, icon, pointUp }, rc: RenderContext) => {
+      const g = rc.g;
+      const s = spacing;
+      const xs = Math.round((Math.sqrt(3) / 2) * spacing);
+
+      const child = rc.resolveChild(icon);
+      if (!child) return;
+
+      g.save();
+      const cx = child.width / 2;
+      const cy = child.height / 2;
+      g.translate(-cx, -cy);
+
+      const points = [
+        [0, 0],
+        [s, 0],
+        [s / 2, xs],
+        [0, xs * 2],
+        [s, xs * 2],
+      ];
+
+      for (const [dx, dy] of points) {
+        g.save();
+        if (pointUp) {
+          g.translate(dy, dx);
+        } else {
+          g.translate(dx, dy);
+        }
+        child.paint(g, child.width, child.height);
+        g.restore();
+      }
+
+      g.restore();
+    },
+  };
+
+  return registerSymbology("iconHexGrid", symbology)(opts);
 }
 
 export interface StarOptions extends OutlineOptions {
