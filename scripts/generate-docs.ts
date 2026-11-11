@@ -91,6 +91,37 @@ const examples: Record<string, ExampleSet> = {
       },
     ],
   },
+  checker: {
+    examples: [
+      {
+        label: "Basic checkerboard",
+        texture: true,
+        expression: 'checker({ color1: "#9c2929", width: 16, height: 16 })',
+      },
+      {
+        label: "Two-color checkerboard",
+        texture: true,
+        expression: 'checker({ color1: "#9c2929", color2: "#29519c" })',
+      },
+      {
+        label: "Three-color checkerboard",
+        texture: true,
+        expression:
+          'checker({ color1: "#9c2929", color2: "#29519c", color3: "#299c31" })',
+      },
+      {
+        label: "Four-color checkerboard",
+        texture: true,
+        expression:
+          'checker({ color1: "#9c2929", color2: "#29519c", color3: "#299c31", color4: "#afb11d" })',
+      },
+      {
+        label: "Non-square checkerboard",
+        texture: true,
+        expression: 'checker({ color1: "#29519c", width: 5, height: 10 })',
+      },
+    ],
+  },
   iconGrid: {
     examples: [
       {
