@@ -153,6 +153,28 @@ const examples: Record<string, ExampleSet> = {
       },
     ],
   },
+  background: {
+    examples: [
+      {
+        label: "Background behind grid",
+        texture: true,
+        expression:
+          'background({ color: "#176b58", child: grid({ color: "#29519c", spacing: 12 }) })',
+      },
+      {
+        label: "Background behind icon grid",
+        texture: true,
+        expression:
+          'background({ color: "#695203", child: iconGrid({ horizontalSpacing: 36, verticalSpacing: 48, icon: marker() }) })',
+      },
+      {
+        label: "Semi-transparent background",
+        texture: true,
+        expression:
+          'background({ color: "rgba(102, 40, 120, 0.5)", child: star({ color: "yellow" }) })',
+      },
+    ],
+  },
 };
 
 const root = resolve(import.meta.dirname, "..");
