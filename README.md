@@ -24,8 +24,8 @@ map.setMissingStyleImageResolver(qsResolver);
 
 /* If you have other libraries that add resolvers, you can do it like this: */
 map.setMissingStyleImageResolver(async (id: string) => {
-	await qsResolver(id);
-	await /* other resolvers... */;
+  await qsResolver(id);
+  await /* other resolvers... */;
 });
 
 /* In versions of MapLibre prior to 6.0, use the styleimagemissing event instead: */
@@ -35,14 +35,14 @@ map.on('styleimagemissing', (event) => {
 
 
 map.addLayer({
-	id: 'markers',
-	type: 'symbol',
-	source: 'my-source',
-	layout: {
-		'icon-image': marker({
-			color: ['get', 'marker-color'],
-		})
-	}
+  id: 'markers',
+  type: 'symbol',
+  source: 'my-source',
+  layout: {
+    'icon-image': marker({
+      color: ['get', 'marker-color'],
+    })
+  }
 })
 ```
 
